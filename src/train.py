@@ -29,6 +29,7 @@ from evaluate import (
 from model import build_transformer_lstm, set_global_determinism
 from preprocessing import prepare_dataset
 
+<<<<<<< HEAD
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DATA_DIR = PROJECT_ROOT / "dataset"
@@ -45,10 +46,13 @@ def cosine_warmup_schedule(epoch: int, lr: float, config: TrainingConfig) -> flo
     return config.learning_rate * 0.5 * (1.0 + math.cos(math.pi * progress))
 
 
+=======
+>>>>>>> e38505b (Update project with latest changes)
 MODEL_NAME = "Transformer-Enhanced LSTM"
 DATASET_SLUGS = {"cic": "cic_darknet2020", "unsw": "unsw_nb15"}
 
 
+<<<<<<< HEAD
 class RestoreBestValidationWeights(Callback):
     """Keep the best validation-accuracy weights without stopping training early."""
 
@@ -90,6 +94,24 @@ def build_callbacks(
             monitor="val_loss",
             factor=0.5,
             patience=max(4, config.early_stopping_patience // 3),
+=======
+def build_callbacks(results_dir: Path, dataset_slug: str, save_model: bool = False):
+    """Return callbacks tuned for best validation accuracy within 50 epochs."""
+
+    callbacks = [
+        EarlyStopping(
+            monitor="val_accuracy",
+            mode="max",
+            patience=12,
+            min_delta=1e-4,
+            restore_best_weights=True,
+        ),
+        ReduceLROnPlateau(
+            monitor="val_loss",
+            mode="min",
+            factor=0.5,
+            patience=4,
+>>>>>>> e38505b (Update project with latest changes)
             min_lr=1e-6,
             verbose=1,
         ),
@@ -107,12 +129,28 @@ def build_callbacks(
     return callbacks
 
 
+<<<<<<< HEAD
 def resolve_class_weight_mode(dataset: str, requested_mode: str, config: TrainingConfig) -> str:
     """Choose a class-weight strategy without touching the test set."""
 
     if requested_mode != "auto":
         return requested_mode
     return config.class_weight_mode
+=======
+def resolve_class_weight_mode(dataset: str, requested_mode: str) -> str:
+    """Choose a default class-weight strategy without touching the test set.
+
+    UNSW-NB15 official test accuracy is often reduced by aggressive class
+    weighting because the model predicts more rare attacks. For an
+    accuracy-focused run, no class weights is the most appropriate default on
+    UNSW. CIC keeps mild square-root weights because the main dataset benefits
+    from supporting rare Tor/VPN classes without extreme over-correction.
+    """
+
+    if requested_mode != "auto":
+        return requested_mode
+    return "none" if dataset == "unsw" else "sqrt"
+>>>>>>> e38505b (Update project with latest changes)
 
 
 def compute_weights(y_train: np.ndarray, mode: str = "sqrt") -> Dict[int, float] | None:
@@ -126,12 +164,18 @@ def compute_weights(y_train: np.ndarray, mode: str = "sqrt") -> Dict[int, float]
     return {int(class_id): float(weight) for class_id, weight in zip(classes, weights)}
 
 
+<<<<<<< HEAD
 def build_model(input_shape: tuple[int, int], num_classes: int, config: TrainingConfig):
     """Build the proposed model using dataset-aware tuned defaults."""
+=======
+def build_model(input_shape: tuple[int, int], num_classes: int):
+    """Build the single proposed model with accuracy-focused tuned defaults."""
+>>>>>>> e38505b (Update project with latest changes)
 
     return build_transformer_lstm(
         input_shape=input_shape,
         num_classes=num_classes,
+<<<<<<< HEAD
         projection_dim=config.projection_dim,
         lstm_units=config.lstm_units,
         attention_heads=config.attention_heads,
@@ -153,6 +197,25 @@ def build_model(input_shape: tuple[int, int], num_classes: int, config: Training
 def make_mixup_dataset(
     X: np.ndarray,
     y: np.ndarray,
+=======
+        projection_dim=128,
+        lstm_units=128,
+        attention_heads=4,
+        transformer_blocks=2,
+        attention_dropout=0.12,
+        dropout_rate=0.18,
+        ffn_units=384,
+        dense_units=256,
+        learning_rate=5e-4,
+        weight_decay=5e-5,
+    )
+
+
+def train_model(
+    data,
+    dataset_slug: str,
+    epochs: int,
+>>>>>>> e38505b (Update project with latest changes)
     batch_size: int,
     num_classes: int,
     mixup_alpha: float,
@@ -188,16 +251,25 @@ def train_model(
 ) -> Tuple[object, object, Dict[str, object]]:
     """Train the proposed model and evaluate it on the held-out test split."""
 
+<<<<<<< HEAD
     model = build_model(data.input_shape, data.num_classes, config)
+=======
+    model = build_model(data.input_shape, data.num_classes)
+>>>>>>> e38505b (Update project with latest changes)
     weights = compute_weights(data.y_train, class_weight_mode)
     print("\n" + "=" * 72)
     print(f"Dataset            : {data.dataset_name}")
     print(f"Model              : {MODEL_NAME}")
+<<<<<<< HEAD
     print(f"Input shape        : {data.input_shape}")
     print(f"Epochs             : {config.epochs}")
     print("Early stopping     : disabled; full epoch schedule will run")
     print(f"Batch              : {config.batch_size}")
     print(f"Mixup alpha        : {config.mixup_alpha}")
+=======
+    print(f"Epochs             : {epochs}")
+    print(f"Batch              : {batch_size}")
+>>>>>>> e38505b (Update project with latest changes)
     print(f"Class weight mode  : {class_weight_mode}")
     print("=" * 72 + "\n")
 
@@ -205,6 +277,7 @@ def train_model(
     train_ds = make_mixup_dataset(
         data.X_train,
         data.y_train,
+<<<<<<< HEAD
         batch_size=config.batch_size,
         num_classes=data.num_classes,
         mixup_alpha=config.mixup_alpha,
@@ -220,6 +293,12 @@ def train_model(
         epochs=config.epochs,
         steps_per_epoch=steps_per_epoch,
         callbacks=build_callbacks(results_dir, dataset_slug, config=config, save_model=save_model),
+=======
+        validation_data=(data.X_val, data.y_val),
+        epochs=epochs,
+        batch_size=batch_size,
+        callbacks=build_callbacks(results_dir, dataset_slug, save_model=save_model),
+>>>>>>> e38505b (Update project with latest changes)
         class_weight=weights,
         verbose=1,
     )
@@ -236,8 +315,13 @@ def run_experiment(
     label_column: str | None = None,
     data_dir: str | Path = "dataset",
     results_dir: str | Path = "results",
+<<<<<<< HEAD
     epochs: int | None = None,
     batch_size: int | None = None,
+=======
+    epochs: int = 50,
+    batch_size: int = 128,
+>>>>>>> e38505b (Update project with latest changes)
     max_samples: int | None = None,
     class_weight_mode: str = "auto",
     save_model: bool = False,
@@ -246,6 +330,7 @@ def run_experiment(
     """Run the proposed model on one dataset and return experiment details."""
 
     set_global_determinism(seed)
+<<<<<<< HEAD
     config = get_training_config(dataset)
     if epochs is not None:
         config = TrainingConfig(**{**config.__dict__, "epochs": epochs})
@@ -265,6 +350,16 @@ def run_experiment(
         data=data,
         dataset_slug=dataset_slug,
         config=config,
+=======
+    data = prepare_dataset(dataset=dataset, data_dir=data_dir, label_column=label_column, max_samples=max_samples)
+    dataset_slug = DATASET_SLUGS.get(dataset, dataset)
+    resolved_weight_mode = resolve_class_weight_mode(dataset, class_weight_mode)
+    _, history, metrics = train_model(
+        data=data,
+        dataset_slug=dataset_slug,
+        epochs=epochs,
+        batch_size=batch_size,
+>>>>>>> e38505b (Update project with latest changes)
         results_dir=Path(results_dir),
         class_weight_mode=resolved_weight_mode,
         save_model=save_model,
@@ -278,7 +373,10 @@ def run_experiment(
         "class_names": data.class_names,
         "class_distribution": data.class_distribution,
         "class_weight_mode": resolved_weight_mode,
+<<<<<<< HEAD
         "training_config": config,
+=======
+>>>>>>> e38505b (Update project with latest changes)
         "history": history,
         "metrics": metrics,
     }
@@ -320,8 +418,13 @@ def run_project(
     data_dir: str | Path = "dataset",
     results_dir: str | Path = "results",
     figures_dir: str | Path = "figures",
+<<<<<<< HEAD
     epochs: int | None = None,
     batch_size: int | None = None,
+=======
+    epochs: int = 50,
+    batch_size: int = 128,
+>>>>>>> e38505b (Update project with latest changes)
     max_samples: int | None = None,
     class_weight_mode: str = "auto",
     save_model: bool = False,
@@ -354,11 +457,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dataset", choices=["cic", "unsw"], default="cic")
     parser.add_argument("--all-datasets", action="store_true")
     parser.add_argument("--label-column", default=None)
+<<<<<<< HEAD
     parser.add_argument("--data-dir", default=str(DEFAULT_DATA_DIR))
     parser.add_argument("--results-dir", default=str(DEFAULT_RESULTS_DIR))
     parser.add_argument("--figures-dir", default=str(DEFAULT_FIGURES_DIR))
     parser.add_argument("--epochs", type=int, default=None)
     parser.add_argument("--batch-size", type=int, default=None)
+=======
+    parser.add_argument("--data-dir", default="dataset")
+    parser.add_argument("--results-dir", default="results")
+    parser.add_argument("--figures-dir", default="figures")
+    parser.add_argument("--epochs", type=int, default=50)
+    parser.add_argument("--batch-size", type=int, default=128)
+>>>>>>> e38505b (Update project with latest changes)
     parser.add_argument("--max-samples", type=int, default=None)
     parser.add_argument("--class-weight-mode", choices=["auto", "none", "sqrt", "balanced"], default="auto")
     parser.add_argument("--save-model", action="store_true")

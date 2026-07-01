@@ -20,12 +20,16 @@ from tensorflow.keras.layers import (
     LeakyReLU,
     Multiply,
     MultiHeadAttention,
+<<<<<<< HEAD
     Reshape,
+=======
+>>>>>>> e38505b (Update project with latest changes)
     SpatialDropout1D,
 )
 from tensorflow.keras.optimizers import AdamW
 
 
+<<<<<<< HEAD
 class FeaturePositionalEmbedding(tf.keras.layers.Layer):
     """Learnable per-feature position embedding, added to the projected tokens."""
 
@@ -66,6 +70,20 @@ def compile_classifier(
     model.compile(
         optimizer=optimizer,
         loss=loss,
+=======
+def compile_classifier(
+    model: Model,
+    learning_rate: float = 5e-4,
+    weight_decay: float = 5e-5,
+    clipnorm: float = 1.0,
+) -> Model:
+    """Compile the proposed model with stable optimizer settings."""
+
+    optimizer = AdamW(learning_rate=learning_rate, weight_decay=weight_decay, clipnorm=clipnorm)
+    model.compile(
+        optimizer=optimizer,
+        loss="sparse_categorical_crossentropy",
+>>>>>>> e38505b (Update project with latest changes)
         metrics=["accuracy"],
     )
     return model
@@ -102,6 +120,7 @@ def transformer_encoder_block(
     ffn = Dense(projection_dim, kernel_regularizer=l2, name=f"ffn_{block_id}_project")(ffn)
     x = Add(name=f"ffn_{block_id}_residual")([x, ffn])
     return LayerNormalization(epsilon=1e-6, name=f"encoder_{block_id}_output_norm")(x)
+<<<<<<< HEAD
 
 
 def multi_scale_feature_mixer(x, projection_dim: int, dropout_rate: float, l2, name_prefix: str):
@@ -145,11 +164,14 @@ def squeeze_excitation_block(x, ratio: int = 8, name: str = "se"):
     excite = Dense(channels, activation="sigmoid", name=f"{name}_expand")(excite)
     excite = Reshape((1, channels), name=f"{name}_expand_dims")(excite)
     return Multiply(name=f"{name}_scale")([x, excite])
+=======
+>>>>>>> e38505b (Update project with latest changes)
 
 
 def build_transformer_lstm(
     input_shape: tuple[int, int],
     num_classes: int,
+<<<<<<< HEAD
     projection_dim: int = 192,
     lstm_units: int = 160,
     attention_heads: int = 8,
@@ -175,6 +197,26 @@ def build_transformer_lstm(
     - deeper Transformer encoder stack
     - squeeze-and-excitation channel attention
     - dual pooling with a wider classification head
+=======
+    projection_dim: int = 128,
+    lstm_units: int = 128,
+    attention_heads: int = 4,
+    transformer_blocks: int = 2,
+    attention_dropout: float = 0.12,
+    dropout_rate: float = 0.18,
+    ffn_units: int = 384,
+    dense_units: int = 256,
+    learning_rate: float = 5e-4,
+    weight_decay: float = 5e-5,
+) -> Model:
+    """Build an accuracy-focused but regularized Transformer-Enhanced LSTM.
+
+    The model keeps the required LSTM + attention methodology, but improves
+    feature learning with a wider projection, lightweight convolutional feature
+    mixer, bidirectional LSTM encoder, stacked Transformer blocks, and dual
+    pooling. These changes increase capacity while dropout, AdamW, L2, and
+    gradient clipping control overfitting.
+>>>>>>> e38505b (Update project with latest changes)
     """
 
     if projection_dim % attention_heads != 0:
@@ -185,6 +227,7 @@ def build_transformer_lstm(
 
     inputs = Input(shape=input_shape, name="network_features")
 
+<<<<<<< HEAD
     x = GaussianNoise(gaussian_noise, name="input_gaussian_noise")(inputs) if gaussian_noise > 0 else inputs
     x = Dense(projection_dim, kernel_regularizer=l2, name="feature_projection")(x)
     x = FeaturePositionalEmbedding(input_shape[0], projection_dim, name="feature_pos_embed")(x)
@@ -217,6 +260,42 @@ def build_transformer_lstm(
         if return_sequences:
             x = Dense(projection_dim, kernel_regularizer=l2, name=f"lstm_projection_{layer_id}")(x)
             x = Dropout(dropout_rate * 0.75, name=f"lstm_projection_dropout_{layer_id}")(x)
+=======
+    # Learn a richer embedding for each normalized tabular feature timestep.
+    x = Dense(projection_dim, kernel_regularizer=l2, name="feature_projection")(inputs)
+    x = LayerNormalization(epsilon=1e-6, name="projection_norm")(x)
+    x = SpatialDropout1D(dropout_rate * 0.5, name="projection_dropout")(x)
+
+    # Local feature mixer helps the model combine neighboring engineered flow
+    # features before the recurrent encoder, while the residual preserves the
+    # original projection signal.
+    conv = Conv1D(
+        projection_dim,
+        kernel_size=3,
+        padding="same",
+        activation="gelu",
+        kernel_regularizer=l2,
+        name="feature_mixer_conv",
+    )(x)
+    conv = Dropout(dropout_rate * 0.5, name="feature_mixer_dropout")(conv)
+    x = Add(name="feature_mixer_residual")([x, conv])
+    x = LayerNormalization(epsilon=1e-6, name="feature_mixer_norm")(x)
+
+    # Bidirectional context is justified because feature order is non-causal.
+    x = Bidirectional(
+        LSTM(
+            lstm_units,
+            return_sequences=True,
+            dropout=dropout_rate * 0.5,
+            kernel_regularizer=l2,
+            recurrent_regularizer=l2,
+            name="lstm_encoder",
+        ),
+        name="bidirectional_lstm",
+    )(x)
+    x = Dense(projection_dim, kernel_regularizer=l2, name="lstm_projection")(x)
+    x = Dropout(dropout_rate, name="lstm_projection_dropout")(x)
+>>>>>>> e38505b (Update project with latest changes)
 
     for block_id in range(1, transformer_blocks + 1):
         x = transformer_encoder_block(
@@ -231,6 +310,7 @@ def build_transformer_lstm(
             l2=l2,
         )
 
+<<<<<<< HEAD
     x = squeeze_excitation_block(x, ratio=8, name="sequence_se")
 
     avg_pool = GlobalAveragePooling1D(name="global_average_pooling")(x)
@@ -242,6 +322,15 @@ def build_transformer_lstm(
     x = Dropout(dropout_rate, name="classifier_dropout")(x)
     x = Dense(dense_units // 2, kernel_regularizer=l2, name="classifier_refine")(x)
     x = LeakyReLU(negative_slope=0.05, name="classifier_refine_leaky_relu")(x) if use_leaky_relu_head else tf.keras.activations.gelu(x)
+=======
+    avg_pool = GlobalAveragePooling1D(name="global_average_pooling")(x)
+    max_pool = GlobalMaxPooling1D(name="global_max_pooling")(x)
+    x = Concatenate(name="pooled_features")([avg_pool, max_pool])
+
+    x = Dense(dense_units, activation="gelu", kernel_regularizer=l2, name="classifier_dense")(x)
+    x = Dropout(dropout_rate, name="classifier_dropout")(x)
+    x = Dense(dense_units // 2, activation="gelu", kernel_regularizer=l2, name="classifier_refine")(x)
+>>>>>>> e38505b (Update project with latest changes)
     x = Dropout(dropout_rate * 0.5, name="classifier_refine_dropout")(x)
     outputs = Dense(num_classes, activation="softmax", name="class_probabilities")(x)
 
@@ -249,8 +338,11 @@ def build_transformer_lstm(
         Model(inputs, outputs, name="Transformer_Enhanced_LSTM"),
         learning_rate=learning_rate,
         weight_decay=weight_decay,
+<<<<<<< HEAD
         label_smoothing=label_smoothing,
         clipnorm=clipnorm,
+=======
+>>>>>>> e38505b (Update project with latest changes)
     )
 
 
