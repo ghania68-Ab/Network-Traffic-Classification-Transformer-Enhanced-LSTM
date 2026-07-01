@@ -4,11 +4,7 @@ Performance Summary
 +-----------------+---------------------------+----------+--------------------+-----------------+-------------+-----------------+--------------+----------+--------------+-----------+
 | Dataset         | Model                     | Accuracy | Weighted Precision | Weighted Recall | Weighted F1 | Macro Precision | Macro Recall | Macro F1 | Weighted AUC | Macro AUC |
 +-----------------+---------------------------+----------+--------------------+-----------------+-------------+-----------------+--------------+----------+--------------+-----------+
-<<<<<<< HEAD
-| CIC-Darknet2020 | Transformer-Enhanced LSTM | 0.9218   | 0.9293             | 0.9218          | 0.9240      | 0.7673          | 0.8734       | 0.7988   | 0.9902       | 0.9830    |
-=======
 | CIC-Darknet2020 | Transformer-Enhanced LSTM | 0.9478   | 0.9487             | 0.9478          | 0.9479      | 0.8845          | 0.8913       | 0.8874   | 0.9949       | 0.9908    |
->>>>>>> e38505b (Update project with latest changes)
 +-----------------+---------------------------+----------+--------------------+-----------------+-------------+-----------------+--------------+----------+--------------+-----------+
 
 ====================================================================================================
@@ -16,29 +12,13 @@ Dataset: CIC-Darknet2020
 Label column: Label
 Class weight mode: sqrt
 Class distribution:
-<<<<<<< HEAD
-- train: Non-Tor: 13197, NonVPN: 9502, Tor: 9502, VPN: 9502
-- validation: Non-Tor: 2828, NonVPN: 882, Tor: 51, VPN: 739
-- test: Non-Tor: 2828, NonVPN: 882, Tor: 52, VPN: 738
-=======
 - train: Non-Tor: 45363, NonVPN: 14151, Tor: 825, VPN: 11845
 - validation: Non-Tor: 9720, NonVPN: 3032, Tor: 177, VPN: 2539
 - test: Non-Tor: 9721, NonVPN: 3033, Tor: 177, VPN: 2538
->>>>>>> e38505b (Update project with latest changes)
 
 Classification Report: Transformer-Enhanced LSTM
               precision    recall  f1-score   support
 
-<<<<<<< HEAD
-     Non-Tor     0.9904    0.9809    0.9856      2828
-      NonVPN     0.8684    0.7857    0.8250       882
-         Tor     0.4054    0.8654    0.5521        52
-         VPN     0.8051    0.8618    0.8325       738
-
-    accuracy                         0.9218      4500
-   macro avg     0.7673    0.8734    0.7988      4500
-weighted avg     0.9293    0.9218    0.9240      4500
-=======
      Non-Tor     0.9961    0.9941    0.9951      9721
       NonVPN     0.8995    0.8473    0.8727      3033
          Tor     0.8066    0.8249    0.8156       177
@@ -47,4 +27,3 @@ weighted avg     0.9293    0.9218    0.9240      4500
     accuracy                         0.9478     15469
    macro avg     0.8845    0.8913    0.8874     15469
 weighted avg     0.9487    0.9478    0.9479     15469
->>>>>>> e38505b (Update project with latest changes)
