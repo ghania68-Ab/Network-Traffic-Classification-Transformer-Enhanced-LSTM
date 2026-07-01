@@ -13,11 +13,14 @@ from typing import Dict, Iterable, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
+from sklearn.feature_selection import VarianceThreshold
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder, RobustScaler
 from sklearn.utils import resample
+
+from config import TrainingConfig, get_training_config
 
 
 RANDOM_STATE = 42
@@ -125,6 +128,25 @@ def clean_dataframe(df: pd.DataFrame, label_column: str) -> pd.DataFrame:
     cleaned = cleaned.drop_duplicates().reset_index(drop=True)
     return cleaned
 
+IDENTIFIER_COLUMNS = (
+    "Flow ID", "Src IP", "Source IP", "Dst IP", "Destination IP",
+    "Timestamp", "SimillarHTTP", "Unnamed: 0",
+)
+
+
+def drop_identifier_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove non-generalizable identifier columns that cause leakage or noise."""
+    cols_to_drop = [c for c in IDENTIFIER_COLUMNS if c in df.columns]
+    return df.drop(columns=cols_to_drop, errors="ignore")
+
+
+def cast_ports_to_categorical(df: pd.DataFrame) -> pd.DataFrame:
+    """Treat port numbers as categories, not continuous magnitudes."""
+    port_cols = [c for c in df.columns if c.lower() in {"src port", "dst port", "source port", "destination port"}]
+    for col in port_cols:
+        df[col] = df[col].astype(str)
+    return df
+
 
 def drop_train_test_overlap(train_df: pd.DataFrame, test_df: pd.DataFrame) -> pd.DataFrame:
     """Drop exact test rows that also occur in train to avoid duplicate leakage."""
@@ -203,6 +225,88 @@ def split_frames(
     return train_part.reset_index(drop=True), val_part.reset_index(drop=True), test_part.reset_index(drop=True)
 
 
+def find_correlated_columns(df: pd.DataFrame, threshold: float = 0.97) -> List[str]:
+    """Return numeric columns that are highly correlated with an earlier column."""
+
+    numeric_columns = df.select_dtypes(include=[np.number]).columns.tolist()
+    if len(numeric_columns) < 2:
+        return []
+
+    correlation = df[numeric_columns].corr().abs()
+    upper = correlation.where(np.triu(np.ones(correlation.shape), k=1).astype(bool))
+    return [column for column in upper.columns if upper[column].gt(threshold).any()]
+
+
+def apply_feature_filters(
+    train_df: pd.DataFrame,
+    val_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    feature_columns: List[str],
+    label_column: str,
+    correlation_threshold: float,
+    variance_threshold: float,
+) -> Tuple[List[str], pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Remove noisy numeric columns using train-only statistics."""
+
+    train_features = train_df[feature_columns].copy()
+    correlated = find_correlated_columns(train_features, threshold=correlation_threshold)
+    remaining = [column for column in feature_columns if column not in correlated]
+
+    numeric_remaining = train_features[remaining].select_dtypes(include=[np.number]).columns.tolist()
+    if numeric_remaining:
+        selector = VarianceThreshold(threshold=variance_threshold)
+        selector.fit(train_features[numeric_remaining])
+        kept_numeric = [
+            column
+            for column, keep in zip(numeric_remaining, selector.get_support())
+            if keep
+        ]
+        categorical_remaining = [column for column in remaining if column not in numeric_remaining]
+        remaining = categorical_remaining + kept_numeric
+
+    if not remaining:
+        raise ValueError("Feature filtering removed every input column.")
+
+    return (
+        remaining,
+        train_df[remaining + [label_column]].copy(),
+        val_df[remaining + [label_column]].copy(),
+        test_df[remaining + [label_column]].copy(),
+    )
+
+
+def oversample_training_frame(
+    train_df: pd.DataFrame,
+    label_column: str,
+    target_ratio: float,
+) -> pd.DataFrame:
+    """Oversample minority classes on the training split only."""
+
+    if target_ratio <= 0:
+        return train_df
+
+    label_counts = train_df[label_column].value_counts()
+    majority_count = int(label_counts.max())
+    target_count = max(2, int(round(majority_count * target_ratio)))
+
+    parts = []
+    for label, count in label_counts.items():
+        class_frame = train_df[train_df[label_column] == label]
+        if count < target_count:
+            extra = resample(
+                class_frame,
+                replace=True,
+                n_samples=target_count - count,
+                random_state=RANDOM_STATE,
+            )
+            parts.append(pd.concat([class_frame, extra], ignore_index=True))
+        else:
+            parts.append(class_frame)
+
+    balanced = pd.concat(parts, ignore_index=True)
+    return balanced.sample(frac=1.0, random_state=RANDOM_STATE).reset_index(drop=True)
+
+
 def build_preprocessor(X_train: pd.DataFrame) -> ColumnTransformer:
     """Build a fit-on-train-only preprocessing transformer."""
 
@@ -216,7 +320,7 @@ def build_preprocessor(X_train: pd.DataFrame) -> ColumnTransformer:
     numeric_pipeline = Pipeline(
         steps=[
             ("imputer", SimpleImputer(strategy="median")),
-            ("scaler", StandardScaler()),
+            ("scaler", RobustScaler()),
         ]
     )
     categorical_pipeline = Pipeline(
@@ -235,11 +339,23 @@ def build_preprocessor(X_train: pd.DataFrame) -> ColumnTransformer:
     return ColumnTransformer(transformers=transformers, remainder="drop", verbose_feature_names_out=False)
 
 
-def prepare_lstm_features(array: np.ndarray) -> np.ndarray:
-    """Convert tabular features to LSTM input shape: samples, timesteps, channels."""
+def prepare_lstm_features(array: np.ndarray, group_size: int = 8) -> np.ndarray:
+    """Convert tabular features to grouped LSTM input shape.
+
+    Grouping related flow features into short multivariate timesteps gives the
+    LSTM richer local context than treating every feature as a scalar timestep.
+    """
 
     array = np.asarray(array, dtype=np.float32)
-    return array.reshape(array.shape[0], array.shape[1], 1)
+    n_samples, n_features = array.shape
+    group_size = max(2, min(group_size, n_features))
+
+    pad_len = (group_size - (n_features % group_size)) % group_size
+    if pad_len:
+        array = np.pad(array, ((0, 0), (0, pad_len)), mode="constant")
+
+    n_timesteps = array.shape[1] // group_size
+    return array.reshape(n_samples, n_timesteps, group_size)
 
 
 def class_distribution(*splits: Tuple[str, Iterable[int]], class_names: List[str]) -> Dict[str, Dict[str, int]]:
@@ -258,11 +374,16 @@ def prepare_dataset(
     dataset: str = "cic",
     data_dir: str | Path = "dataset",
     label_column: Optional[str] = None,
-    validation_size: float = 0.15,
-    test_size: float = 0.15,
+    validation_size: float = 0.10,
+    test_size: float = 0.10,
     max_samples: Optional[int] = None,
+    training_config: TrainingConfig | None = None,
+    oversample: bool | None = None,
 ) -> PreparedData:
     """Load, clean, split, encode, scale, and reshape a supported dataset."""
+
+    config = training_config or get_training_config(dataset)
+    apply_oversample = config.oversample_ratio > 0 if oversample is None else oversample
 
     data_path = Path(data_dir)
     spec = get_dataset_spec(dataset, label_column)
@@ -272,8 +393,12 @@ def prepare_dataset(
         raise ValueError(f"Label column '{spec.label_column}' was not found in {spec.name}.")
 
     train_df = clean_dataframe(train_df, spec.label_column)
+    train_df = drop_identifier_columns(train_df)
+    train_df = cast_ports_to_categorical(train_df)
     if test_df is not None:
         test_df = clean_dataframe(test_df, spec.label_column)
+        test_df = drop_identifier_columns(test_df)
+        test_df = cast_ports_to_categorical(test_df)
         test_df = drop_train_test_overlap(train_df, test_df)
     else:
         train_df = stratified_sample(train_df, spec.label_column, max_samples)
@@ -295,6 +420,23 @@ def prepare_dataset(
     feature_drop_columns = {spec.label_column, *spec.drop_columns}
     feature_columns = [column for column in train_split.columns if column not in feature_drop_columns]
 
+    feature_columns, train_split, val_split, test_split = apply_feature_filters(
+        train_df=train_split,
+        val_df=val_split,
+        test_df=test_split,
+        feature_columns=feature_columns,
+        label_column=spec.label_column,
+        correlation_threshold=config.correlation_threshold,
+        variance_threshold=config.variance_threshold,
+    )
+
+    if apply_oversample:
+        train_split = oversample_training_frame(
+            train_split,
+            label_column=spec.label_column,
+            target_ratio=config.oversample_ratio,
+        )
+
     X_train_df = train_split[feature_columns]
     X_val_df = val_split[feature_columns]
     X_test_df = test_split[feature_columns]
@@ -309,9 +451,18 @@ def prepare_dataset(
     y_test = label_encoder.transform(y_test_raw)
 
     preprocessor = build_preprocessor(X_train_df)
-    X_train = prepare_lstm_features(preprocessor.fit_transform(X_train_df))
-    X_val = prepare_lstm_features(preprocessor.transform(X_val_df))
-    X_test = prepare_lstm_features(preprocessor.transform(X_test_df))
+    X_train = prepare_lstm_features(
+        preprocessor.fit_transform(X_train_df),
+        group_size=config.feature_group_size,
+    )
+    X_val = prepare_lstm_features(
+        preprocessor.transform(X_val_df),
+        group_size=config.feature_group_size,
+    )
+    X_test = prepare_lstm_features(
+        preprocessor.transform(X_test_df),
+        group_size=config.feature_group_size,
+    )
 
     class_names = [str(label) for label in label_encoder.classes_]
     distribution = class_distribution(
