@@ -17,7 +17,6 @@ from sklearn.metrics import (
 )
 
 MODEL_NAME = "Transformer-Enhanced LSTM"
-<<<<<<< HEAD
 
 
 def _safe_auc(y_test: np.ndarray, probabilities: np.ndarray, average: str) -> float | None:
@@ -39,22 +38,6 @@ def evaluate_model(
     tta_passes: int = 1,
     tta_noise: float = 0.004,
 ) -> dict[str, object]:
-=======
-
-
-def _safe_auc(y_test: np.ndarray, probabilities: np.ndarray, average: str) -> float | None:
-    """Return one-vs-rest multiclass AUC when all classes are present."""
-
-    try:
-        if probabilities.shape[1] == 2:
-            return float(roc_auc_score(y_test, probabilities[:, 1]))
-        return float(roc_auc_score(y_test, probabilities, multi_class="ovr", average=average))
-    except ValueError:
-        return None
-
-
-def evaluate_model(model, X_test: np.ndarray, y_test: np.ndarray, class_names: List[str]) -> dict[str, object]:
->>>>>>> e38505b (Update project with latest changes)
     """Evaluate the proposed model on the held-out test split."""
 
     probabilities = model.predict(X_test, verbose=0)
